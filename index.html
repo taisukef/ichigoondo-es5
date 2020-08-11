@@ -1,0 +1,398 @@
+<!DOCTYPE html><html><head><meta charset='utf-8'>
+<title>IchigoOndo</title>
+<meta property="og:image" content="ichigoondo.png">
+<link rel="apple-touch-icon" href="ichigoondo.png">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<script src=https://fukuno.jig.jp/fukuno.js></script>
+<script>"use strict"
+
+var tokens = {
+	temp1: {
+		token: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+		module: "xxxxxxxxxxxx",
+		ch: 1
+	},
+	temp2: {
+		token: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+		module: "xxxxxxxxxxxx",
+		ch: 1
+	},
+};
+var defname = "temp1";
+// use hash like #temp2 to use!
+
+// for ES5
+// ES6 let/const 使えない、class 使えない、TypedArray 使えない、=> 使えない
+// ES7 async/await 使えない
+// ${} 表記、toFixed 使える
+
+var startClock = function() {
+	var getClock = function() {
+		var d = new Date()
+		var h = d.getHours()
+		var m = d.getMinutes()
+		return (h < 10 ? "0" + h : h) + ":" + (m < 10 ? "0" + m : m)
+	}
+	var showClock = function() {
+		clock.textContent = getClock()
+	}
+	setInterval(showClock, 1000)
+	showClock()
+}
+var calcWBGT = function (t, h) {
+	var sr = 0;
+	var ws = 0;
+	var wbgt = 0.735 * t + 0.0374 * h + 0.00292 * t * h + 7.619 * sr - 4.557 * sr * sr - 0.0572 * ws - 4.064;
+	return wbgt;
+};
+
+var init = function() {
+	//localStorage.removeItem("ichigoondo.token")
+	/*
+	var token = localStorage.getItem("ichigoondo.token")
+	if (!token) {
+		var hash = document.location.hash
+		if (hash.length > 1) {
+			token = hash.substring(1)
+		} else {
+			token = prompt("Please input DATASTORE_TOKEN on sakura.io")
+		}
+		if (token)
+			localStorage.setItem("ichigoondo.token", token)
+	}
+	if (!token || token == 'null') {
+		alert("no Tokens, I'll show you demo.")
+		list.textContent = "20.0℃"
+		startClock()
+		return
+	}
+	*/
+	var name = document.location.hash.substring(1) || defname;
+	var token = tokens[name];
+	if (token == null) {
+		token = tokens[defname];
+	}
+
+	// var BASE_URL = "https://api.sakura.io/datastore/v2/channels?token=" + token
+  var BASE_URL = `https://api.sakura.io/datastore/v2/channels?token=${token.token}&module=${token.module}&channel=${token.ch || 0}`;
+  //var BASE_URL = "https://api.sakura.io/datastore/v2/channels?token=" + token.token + "&module=" + token.module + "&channel=" + (token.ch || 0);
+	
+	var getFromDataStore = function(callback) {
+		var MAX_SIZE = 2000 // max 10,000 足りないかも？, cursor 使用時は1000?
+		var url = BASE_URL + "&limit=" + MAX_SIZE;
+		//console.log(url)
+		getRawJSON(url, 'utf-8', function(s) {
+			//console.log(s)
+			var data = JSON.parse(s)
+			console.log(data)
+			var cursor = data.meta.cursor
+			var items = data.results
+			//return items
+			callback(items)
+		})
+		return
+
+//		var data = await (await fetch(url)).json()
+
+		// 
+		/*
+		var togetcnt = data.meta.match - data.meta.count
+		
+		for (;;) {
+			if (togetcnt == 0)
+				break
+			url = BASE_URL + "&cursor=" + cursor + "&size=" + MAX_SIZE_CURSOR
+			data = await (await fetch(url)).json()
+			console.log(data)
+			var items2 = data.results
+			for (var i of items2)
+				items.push(i)
+			togetcnt -= data.meta.count
+			cursor = data.meta.cursor
+		}
+		return items
+		*/
+	}
+	var show = function() {
+		getFromDataStore(function(items) {
+			var item = items[0]
+			
+			/*
+			var f = function(value) {
+				var n = value * 330 / 1023 - 50
+				return { n: n, str: n.toFixed(1) + "℃" }
+			}
+			*/
+			var f = function(value) {
+				// console.log(value);
+				var t0 = parseInt(value.substring(0, 4), 16);
+				var t = ((17500 * t0) >> 16) - 4500;
+				t /= 100;
+
+				var h0 = parseInt(value.substring(6, 6 + 4), 16);
+				var h = ((10000 * h0) >> 16);
+				h /= 100;
+				
+				var wbgt = calcWBGT(t, h);
+
+				var s = [
+					"<ruby>" + t.toFixed(2) + "<small>℃</small><rt style='color:hsl(0,50%,50%)'>気温</rt></ruby>",
+					"<ruby>" + wbgt.toFixed(2) + "<small>℃</small><rt style='color:hsl(40,50%,50%)'>WBGT</rt></ruby>",
+					"<ruby>" + h.toFixed(2) + "<small>%</small><rt style='color:hsl(180,50%,50%)'>湿度</rt></ruby>",
+				];
+				return {
+					n: t,
+					h: h,
+					wbgt: wbgt,
+					str: s.join("&nbsp;&nbsp;&nbsp;")
+			 	};
+	//			return { n: h / 100, str: (h / 100) + "%" };
+			}
+			list.innerHTML = f(item.value).str
+
+			drawGraph(items, f)
+		})
+//		var items = await getFromDataStore()
+
+	}
+	setInterval(show, 1000 * 60 * 5) // every 5 min
+	show()
+
+	startClock()
+
+
+	var items
+	var func
+	var drawGraph = function(pitems, pfunc) {
+		items = pitems
+		func = pfunc
+		redrawGraph()
+	}
+	var redrawGraph = function() {
+		var funcwbgt = function (value) {
+			var d = func(value);
+			return { n: d.wbgt };
+		};
+		var funch = function (value) {
+			var d = func(value);
+			return { n: d.h };
+		}
+
+		var dpr = window.devicePixelRatio
+		var cw = canvas.width = canvas.clientWidth * dpr
+		var ch = canvas.height = canvas.clientHeight * dpr
+		//console.log(cw, ch)
+		var g = canvas.getContext("2d")
+		g.drawLine = function(x1, y1, x2, y2) {
+			g.beginPath()
+			g.moveTo(x1, y1)
+			g.lineTo(x2, y2)
+			g.stroke()
+		}
+		g.fillCircle = function(x, y, r) {
+			g.beginPath()
+			g.arc(x, y, r, 0, 2 * Math.PI)
+			g.fill()
+		}
+
+		// fit range
+		var min = 1000
+		var max = -1000
+		for (var item of items) {
+			var n = func(item.value).n
+			if (n < min) {
+				min = n
+			} else if (n > max) {
+				max = n
+			}
+			var n = funcwbgt(item.value).n
+			if (n < min) {
+				min = n
+			} else if (n > max) {
+				max = n
+			}
+		}
+		min = Math.floor(min / 5) * 5 - 1
+		max = Math.floor(max / 5) * 5 + 6
+		var unit = "℃"
+
+		// fit range 2
+		var min2 = 1000
+		var max2 = -1000
+		for (var item of items) {
+			var n = funch(item.value).n
+			if (n < min2) {
+				min2 = n
+			} else if (n > max2) {
+				max2 = n
+			}
+		}
+		min2 = Math.floor(min2 / 5) * 5 - 1;
+		max2 = Math.floor(max2 / 5) * 5 + 6;
+		var unit2 = "%";
+		var dif1 = (max - min - 2) / 5;
+		var dif2 = (max2 - min2 - 2) / 5;
+		if (dif1 < dif2) {
+			max += (dif2 - dif1) * 5;
+		} else {
+			max2 += (dif1 - dif2) * 5;
+		}
+		
+		var cwh = Math.min(cw, ch * 1.5);
+		g.lineWidth = 1
+		g.strokeStyle = '#aaa'
+		g.fillStyle = '#aaa'
+		g.font = (cwh / 48) + 'px sans-serif'
+		for (var i = 0; i <= 24; i++) {
+			var x = ((1 + i) * cw) / 26
+			g.drawLine(x, 0, x, ch)
+			if (i <= 23)
+				g.fillText(i, x + 5, ch - 2)
+		}
+		g.font = (cwh / 56) + 'px sans-serif'
+		for (var i = min; i < max; i++) {
+			var y = ch - (i - min) * ch / (max - min)
+			g.lineWidth = i % 5 == 0 ? 3 : 1
+			g.drawLine(0, y, cw, y)
+			if (i >= min + 1)
+				g.fillText(i + unit, 0, y - 2)
+		}
+		// axis2
+		for (var i = min2; i < max2; i++) {
+			var x = ((1 + 24) * cw) / 26
+			y = ch - (i - min2) * ch / (max2 - min2)
+			g.lineWidth = i % 5 == 0 ? 3 : 1
+			if (i >= min2 + 1)
+				g.fillText(i + unit2, x, y - 2)
+		}
+
+		var today = new Date()
+		today.setHours(0)
+		today.setMinutes(0)
+		today.setSeconds(0)
+		today.setMilliseconds(0)
+		
+		var drawLines = function(func, hueoff, sat, light, axis2) {
+			var bkdday = 100
+			g.lineWidth = 3
+			g.beginPath()
+			for (var item of items) {
+				var dt = new Date(item.datetime)
+				var n = func(item.value).n
+				//console.log(dt, dt.getTime(), n)
+
+				var h = dt.getHours()
+				var m = dt.getMinutes()
+				var s = dt.getSeconds()
+				var x = (s + m * 60 + h * 60 * 60) / (24 * 60 * 60) * (cw * 24 / 26) + cw / 26;
+				var y = ch - (n - min) / (max - min) * ch
+				if (axis2) {
+					y = ch - (n - min2) / (max2 - min2) * ch;
+				}
+
+				var dday = Math.floor((today.getTime() - dt.getTime()) / (24 * 60 * 60 * 1000))
+				if (dday >= 1)
+					continue
+				if (bkdday != dday) {
+					g.stroke()
+					//g.strokeStyle = 'hsl(' + (dday * 120 + hueoff) + ',' + sat + '%,' + (light + dday * 30) + '%)'  //"#ff0000"
+					g.strokeStyle = 'hsl(' + hueoff + ',' + sat + '%,' + (light + dday * 30) + '%)'  //"#ff0000"
+					g.beginPath()
+					g.moveTo(x, y)
+					bkdday = dday
+				} else {
+					g.lineTo(x, y)
+				}
+			}
+			g.stroke()
+		}
+		drawLines(func, 0, 50, 80);
+		drawLines(funcwbgt, 40, 50, 80);
+		drawLines(funch, 180, 50, 80, true);
+
+		if (window.figtoday)
+			figtoday.style.color = 'hsl(' + (-1 * 120) + ',50%,50%)'
+		if (window.figyesterday)
+			figyesterday.style.color = 'hsl(' + (0 * 120) + ',50%,50%)'
+	}
+	window.onresize = redrawGraph
+}
+
+window.onload = function() {
+	try {
+		init();
+	} catch (e) {
+		alert(e);
+	}
+};
+
+</script>
+<script>
+/*
+	window.onload = function() {
+		alert(1)
+		var a = 1
+		alert(2)
+	}
+*/
+	</script>
+<style>
+body {
+	margin: 1em;
+	text-align: center;
+	font-family: sans-serif;
+}
+h1, h2 {
+	padding: 0px 5px;
+	margin: .5em;
+}
+#clock {
+	display: inline-block;
+	margin-left: 1em;
+}
+#list {
+	font-size: 7vw;
+	margin: 2vh 2vw;
+	display: inline-block;
+}
+#list ruby {
+	ruby-align: center;
+}
+#list rt {
+	font-size: 1.5vw;
+}
+#canvas {
+	width: 100%;
+	height: 70vh;
+	margin: 1vh 0vw;
+}
+small {
+	font-size: 90%;
+}
+.credit {
+	margin-top: 1em;
+}
+a {
+	color: gray !important;
+}
+</style>
+</head>
+<body>
+
+<h1>IchigoOndo<div id=clock></div></h1>
+
+<div><div id=list></div></div>
+<canvas id=canvas></canvas>
+<!--<span id=figtoday>今日</span> / <span id=figyesterday>昨日</span>-->
+
+
+<div class=credit>
+APP / DATA: CC BY <a href=https://fukuno.jig.jp/2697>福野泰介の一日一創</a> (<a href=ichigoondo-simple.html>simple ver.</a>)<br>
+</div>
+
+<!--<textarea id=ta></textarea>-->
+
+</body>
+</html>
